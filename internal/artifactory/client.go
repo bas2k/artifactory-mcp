@@ -29,6 +29,24 @@ func (c *Client) read(ctx context.Context, op, path string, body []byte, out any
 	return Decode(data, out)
 }
 func invalid(err error) error { return NewError("invalid_input", err.Error()) }
+
+func (c *Client) ServerInfo(ctx context.Context) (ServerInfo, error) {
+	var raw struct {
+		Version  string   `json:"version"`
+		Revision string   `json:"revision"`
+		License  string   `json:"license"`
+		Addons   []string `json:"addons"`
+	}
+	if err := c.read(ctx, "version", "api/system/version", nil, &raw); err != nil {
+		return ServerInfo{}, err
+	}
+	if strings.TrimSpace(raw.Version) == "" {
+		return ServerInfo{}, NewError("unavailable", "upstream omitted the Artifactory version")
+	}
+
+	return ServerInfo{Version: raw.Version, Revision: raw.Revision, License: raw.License, Addons: append([]string{}, raw.Addons...)}, nil
+}
+
 func (c *Client) storage(in ArtifactInput, empty bool) (string, error) {
 	if config.ValidateSegment(in.Repository) != nil || config.ValidatePath(in.Path, empty) != nil {
 		return "", NewError("invalid_input", "repository and path must be relative names without traversal or URL components")
@@ -94,13 +112,25 @@ func (c *Client) ListRepositories(ctx context.Context, in RepositoryFilter) (Rep
 	return out, nil
 }
 func (c *Client) Search(ctx context.Context, in search.Filters) (SearchResult, error) {
+	return c.search(ctx, in, false)
+}
+
+func (c *Client) SearchSorted(ctx context.Context, in search.Filters) (SearchResult, error) {
+	return c.search(ctx, in, true)
+}
+
+func (c *Client) search(ctx context.Context, in search.Filters, sorted bool) (SearchResult, error) {
 	out := SearchResult{Artifacts: []Artifact{}}
 	for _, r := range in.Repositories {
 		if !config.Allowed(r, c.allowlist) {
 			return out, NewError("forbidden", "repository is outside the configured allowlist")
 		}
 	}
-	query, limit, err := search.Build(in, c.allowlist)
+	build := search.Build
+	if sorted {
+		build = search.BuildSorted
+	}
+	query, limit, err := build(in, c.allowlist)
 	if err != nil {
 		return out, invalid(err)
 	}

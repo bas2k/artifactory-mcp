@@ -1,6 +1,6 @@
 # Pinned SDK audit
 
-Pins: `github.com/jfrog/jfrog-client-go v1.54.0` (requires Go 1.23.7), `github.com/modelcontextprotocol/go-sdk v1.6.0` (requires Go 1.25.0). The module selects Go 1.25.0. These observations come from the downloaded tagged source, not master.
+Pins: `github.com/jfrog/jfrog-client-go v1.54.0` (requires Go 1.23.7), `github.com/modelcontextprotocol/go-sdk v1.6.0` (requires Go 1.26.0). The module selects Go 1.26.0. These observations come from the downloaded tagged source, not master.
 
 | Control | Pinned SDK behavior | Current application choice |
 | --- | --- | --- |

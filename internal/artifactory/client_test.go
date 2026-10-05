@@ -25,6 +25,10 @@ func TestScopeCannotReachExecutor(t *testing.T) {
 	if Classify(err).Category != "forbidden" {
 		t.Fatal(err)
 	}
+	_, err = c.SearchSorted(context.Background(), search.Filters{Repositories: []string{"other"}})
+	if Classify(err).Category != "forbidden" {
+		t.Fatal(err)
+	}
 	if calls != 0 {
 		t.Fatal("disallowed repository reached upstream")
 	}

@@ -38,6 +38,14 @@ func Paging(limit, offset int) (int, error) {
 }
 
 func Build(f Filters, allowlist []string) (string, int, error) {
+	return build(f, allowlist, false)
+}
+
+func BuildSorted(f Filters, allowlist []string) (string, int, error) {
+	return build(f, allowlist, true)
+}
+
+func build(f Filters, allowlist []string, sorted bool) (string, int, error) {
 	limit, err := Paging(f.Limit, f.Offset)
 	if err != nil {
 		return "", 0, err
@@ -115,7 +123,12 @@ func Build(f Filters, allowlist []string) (string, int, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	query := `items.find(` + string(data) + `).include("repo","path","name","size","created","modified","actual_sha1","actual_md5","sha256").sort({"$asc":["repo","path","name"]}).offset(` + strconv.Itoa(f.Offset) + `).limit(` + strconv.Itoa(limit) + `)`
+	query := `items.find(` + string(data) + `).include("repo","path","name","size","created","modified","actual_sha1","actual_md5","sha256")`
+	// Artifactory OSS rejects AQL sorting; only the sorted tool requests it.
+	if sorted {
+		query += `.sort({"$asc":["repo","path","name"]})`
+	}
+	query += `.offset(` + strconv.Itoa(f.Offset) + `).limit(` + strconv.Itoa(limit) + `)`
 	if utf8.RuneCountInString(query) > 6000 {
 		return "", 0, fmt.Errorf("generated AQL exceeds 6000 characters")
 	}

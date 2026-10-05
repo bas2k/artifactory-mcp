@@ -21,6 +21,9 @@ var version = "dev"
 
 func run() error {
 	jfrog.ConfigureLogging()
+	if err := loadDotEnv(); err != nil {
+		return err
+	}
 	cfg, err := config.Load(os.Getenv, os.Args[1:]...)
 	if err != nil {
 		return err

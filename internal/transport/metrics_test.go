@@ -143,6 +143,8 @@ func TestMetricsHTTPAndToolCalls(t *testing.T) {
 		toolError, protocolError bool
 	}{
 		{name: "list_repositories", arguments: map[string]any{}},
+		{name: "get_server_info", arguments: map[string]any{"unexpected": "private-value"}, toolError: true},
+		{name: "search_artifacts_sorted", arguments: map[string]any{"limit": "invalid"}, toolError: true},
 		{name: "get_artifact_info", arguments: map[string]any{"repository": "libs", "path": "private-artifact"}, toolError: true},
 		{name: "list_repositories", arguments: map[string]any{"unexpected": "private-value"}, toolError: true},
 		{name: "unknown-private-tool", arguments: map[string]any{}, protocolError: true},
@@ -171,6 +173,8 @@ func TestMetricsHTTPAndToolCalls(t *testing.T) {
 		`artifactory_mcp_tool_calls_total{outcome="success",tool="list_repositories"} 1`,
 		`artifactory_mcp_tool_calls_total{outcome="error",tool="list_repositories"} 1`,
 		`artifactory_mcp_tool_calls_total{outcome="error",tool="get_artifact_info"} 1`,
+		`artifactory_mcp_tool_calls_total{outcome="error",tool="get_server_info"} 1`,
+		`artifactory_mcp_tool_calls_total{outcome="error",tool="search_artifacts_sorted"} 1`,
 		`artifactory_mcp_tool_calls_total{outcome="error",tool="unknown"} 1`,
 		`artifactory_mcp_tool_call_duration_seconds_count{outcome="success",tool="list_repositories"} 1`,
 		`go_goroutines`,

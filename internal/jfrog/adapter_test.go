@@ -47,6 +47,9 @@ func TestHTTPContracts(t *testing.T) {
 				t.Error("wrong AQL content type")
 			}
 			body, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(body), `.sort({"$asc":["repo","path","name"]})`) {
+				t.Errorf("missing sorted search ordering: %s", body)
+			}
 			if !strings.Contains(string(body), `"$or":[{"repo":"libs"}]`) || !strings.Contains(string(body), `.include("repo","path","name"`) || !strings.HasSuffix(string(body), `.offset(0).limit(1)`) {
 				t.Errorf("invalid generated AQL: %s", body)
 			}
@@ -92,7 +95,7 @@ func TestHTTPContracts(t *testing.T) {
 	if err != nil || len(repos.Repositories) != 1 {
 		t.Fatalf("repository contract: %+v %v", repos, err)
 	}
-	results, err := client.Search(ctx, search.Filters{Limit: 1})
+	results, err := client.SearchSorted(ctx, search.Filters{Limit: 1})
 	if err != nil || results.Artifacts[0].Size != 9007199254740993 || len(results.Notices) != 1 {
 		t.Fatalf("search contract: %+v %v", results, err)
 	}
@@ -180,6 +183,112 @@ func TestFailuresAndBoundedReads(t *testing.T) {
 		})
 	}
 }
+func TestSearchOSSPaging(t *testing.T) {
+	var requests atomic.Int32
+	server := memoryServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method != http.MethodPost || r.URL.Path != "/proxy/artifactory/api/search/aql" {
+			t.Errorf("unexpected search request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		query := string(body)
+		if strings.Contains(query, `.sort(`) {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"errors":[{"message":"Sorting is not supported by AQL in the open source version"}]}`)
+			return
+		}
+		if !strings.Contains(query, `"$or":[{"repo":"libs"}]`) {
+			t.Errorf("lost repository scope: %s", query)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(query, `.offset(0).limit(1)`):
+			io.WriteString(w, `{"results":[{"repo":"libs","path":".","name":"z.jar","size":10}],"range":{"start_pos":0,"end_pos":1,"total":1}}`)
+		case strings.HasSuffix(query, `.offset(1).limit(1)`):
+			io.WriteString(w, `{"results":[{"repo":"libs","path":".","name":"a.jar","size":20}],"range":{"start_pos":1,"end_pos":2,"total":1}}`)
+		default:
+			t.Errorf("lost offset or limit: %s", query)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+	client, err := newTestClient(settings(server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	for offset, name := range []string{"z.jar", "a.jar"} {
+		result, err := client.Search(context.Background(), search.Filters{Limit: 1, Offset: offset})
+		if err != nil {
+			t.Fatalf("OSS search page %d: %v", offset, err)
+		}
+		if len(result.Artifacts) != 1 || result.Artifacts[0].Name != name || result.Page.Limit != 1 || result.Page.Offset != offset || result.Page.Returned != 1 || !result.Page.HasMore || result.Page.Paging != "upstream" || result.Range == nil || result.Range.StartPos != int64(offset) {
+			t.Fatalf("incorrect OSS search page %d: %+v", offset, result)
+		}
+	}
+	if _, err := client.SearchSorted(context.Background(), search.Filters{Limit: 1}); err == nil || app.Classify(err).Category != "invalid_input" {
+		t.Fatalf("sorted OSS search should report upstream rejection: %v", err)
+	}
+	if requests.Load() != 3 {
+		t.Fatalf("expected one request per page and one sorted rejection, got %d", requests.Load())
+	}
+}
+
+func TestServerInfoHTTPContract(t *testing.T) {
+	for _, test := range []struct {
+		name, body, license, category string
+	}{
+		{"OSS", `{"version":"7.104.2","revision":"71040200","license":"Artifactory OSS","addons":[]}`, "Artifactory OSS", ""},
+		{"enterprise", `{"version":"7.104.2","license":"Enterprise Plus","addons":["build","test-token"],"entitlements":{"private":"excluded"}}`, "Enterprise Plus", ""},
+		{"omitted license", `{"version":"7.104.2"}`, "", ""},
+		{"empty license", `{"version":"7.104.2","license":""}`, "", ""},
+		{"whitespace license", `{"version":"7.104.2","license":"  "}`, "  ", ""},
+		{"fingerprint", `{"version":"7.104.2","license":"0123456789abcdef0123456789abcdef01234567"}`, "0123456789abcdef0123456789abcdef01234567", ""},
+		{"unrecognized license", `{"version":"7.104.2","license":"unrecognized-license"}`, "unrecognized-license", ""},
+		{"missing version", `{}`, "", "unavailable"},
+		{"malformed", `{`, "", "unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := memoryServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/proxy/artifactory/api/system/version" || r.URL.RawQuery != "" || r.Header.Get("Authorization") != "Bearer test-token" {
+					t.Errorf("invalid version request: %s %s", r.Method, r.URL)
+				}
+				io.WriteString(w, test.body)
+			}))
+			defer server.Close()
+			client, err := newTestClient(settings(server.URL))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			info, err := client.ServerInfo(context.Background())
+			if test.category != "" {
+				if err == nil || app.Classify(err).Category != test.category {
+					t.Fatalf("expected %s, got %v", test.category, err)
+				}
+				return
+			}
+			if err != nil || info.Version != "7.104.2" || info.License != test.license || info.Addons == nil {
+				t.Fatalf("server info contract: %+v %v", info, err)
+			}
+			encoded, err := json.Marshal(info)
+			if err != nil || strings.Contains(string(encoded), "test-token") || strings.Contains(string(encoded), "entitlements") || strings.Contains(string(encoded), "excluded") {
+				t.Fatalf("server info leaked excluded fields or credentials: %s %v", encoded, err)
+			}
+			if test.name == "OSS" && info.Revision != "71040200" || test.name == "enterprise" && (len(info.Addons) != 2 || info.Addons[1] != "[REDACTED]") {
+				t.Fatalf("lost revision, add-ons, or redaction: %+v", info)
+			}
+		})
+	}
+}
+
 func TestCancellationAndRedirect(t *testing.T) {
 	upstreamCanceled := make(chan struct{})
 	received := make(chan struct{})
@@ -306,6 +415,11 @@ func TestClosedReadersAndDiscoveryPermissions(t *testing.T) {
 }
 
 func TestOperationAllowlist(t *testing.T) {
+	for _, relative := range []string{"api/system/license", "api/system/version?x=1", "api/system/version/extra", "https://evil.test/api/system/version"} {
+		if err := validateOperation("version", relative); err == nil {
+			t.Fatalf("accepted unsupported version endpoint %s", relative)
+		}
+	}
 	for _, test := range [][2]string{{"delete", "api/storage/libs/a"}, {"artifact", "https://evil.test/api/storage/libs/a"}, {"artifact", "api/storage/libs/../a"}, {"artifact", "api/storage/libs/a?properties"}, {"folder", "api/storage/libs?list"}, {"build", "api/build/job/1?delete=true"}, {"aql", "api/search/aql?x=1"}} {
 		if err := validateOperation(test[0], test[1]); err == nil {
 			t.Fatalf("accepted unsupported operation %v", test)

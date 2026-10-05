@@ -14,12 +14,12 @@ import (
 )
 
 // This suite requires operator-provided, existing read-only fixtures. It never
-// creates, uploads, or deletes data and does not guess the installation edition.
+// creates, uploads, or deletes data and does not guess the installation license.
 func TestLiveRestrictedToken(t *testing.T) {
 	if os.Getenv("ARTIFACTORY_INTEGRATION") != "1" {
 		t.Skip("set ARTIFACTORY_INTEGRATION=1 to opt in")
 	}
-	required := []string{"ARTIFACTORY_TEST_REPOSITORY", "ARTIFACTORY_TEST_ARTIFACT", "ARTIFACTORY_TEST_MISSING_ARTIFACT", "ARTIFACTORY_TEST_BUILD_NAME", "ARTIFACTORY_TEST_BUILD_NUMBER", "ARTIFACTORY_TEST_PROJECT", "ARTIFACTORY_TEST_VERSION", "ARTIFACTORY_TEST_EDITION"}
+	required := []string{"ARTIFACTORY_TEST_REPOSITORY", "ARTIFACTORY_TEST_ARTIFACT", "ARTIFACTORY_TEST_MISSING_ARTIFACT", "ARTIFACTORY_TEST_BUILD_NAME", "ARTIFACTORY_TEST_BUILD_NUMBER", "ARTIFACTORY_TEST_PROJECT", "ARTIFACTORY_TEST_VERSION", "ARTIFACTORY_TEST_LICENSE"}
 	for _, key := range required {
 		if os.Getenv(key) == "" {
 			t.Fatalf("%s is required for live validation", key)
@@ -34,7 +34,7 @@ func TestLiveRestrictedToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	t.Logf("operator-declared Artifactory version=%s edition=%s", os.Getenv("ARTIFACTORY_TEST_VERSION"), os.Getenv("ARTIFACTORY_TEST_EDITION"))
+	t.Logf("operator-declared Artifactory version=%s license=%s", os.Getenv("ARTIFACTORY_TEST_VERSION"), os.Getenv("ARTIFACTORY_TEST_LICENSE"))
 	ctx := context.Background()
 	repo := os.Getenv("ARTIFACTORY_TEST_REPOSITORY")
 	artifact := os.Getenv("ARTIFACTORY_TEST_ARTIFACT")

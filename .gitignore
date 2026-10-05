@@ -2,4 +2,7 @@
 /dist/
 .codegraph/
 .env
-.github/
+.vscode/
+.env.*
+!.env.example
+TODO.md

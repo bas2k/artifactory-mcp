@@ -29,11 +29,12 @@ type diagnosticLogger struct{}
 
 const diagnosticMessage = "JFrog SDK diagnostic; details suppressed"
 
-func (diagnosticLogger) Debug(...interface{})  { slog.Debug(diagnosticMessage) }
-func (diagnosticLogger) Info(...interface{})   { slog.Info(diagnosticMessage) }
-func (diagnosticLogger) Warn(...interface{})   { slog.Warn(diagnosticMessage) }
-func (diagnosticLogger) Error(...interface{})  { slog.Error(diagnosticMessage) }
-func (diagnosticLogger) Output(...interface{}) { slog.Error(diagnosticMessage) }
+func (diagnosticLogger) Verbose(...interface{}) { slog.Debug(diagnosticMessage) }
+func (diagnosticLogger) Debug(...interface{})   { slog.Debug(diagnosticMessage) }
+func (diagnosticLogger) Info(...interface{})    { slog.Info(diagnosticMessage) }
+func (diagnosticLogger) Warn(...interface{})    { slog.Warn(diagnosticMessage) }
+func (diagnosticLogger) Error(...interface{})   { slog.Error(diagnosticMessage) }
+func (diagnosticLogger) Output(...interface{})  { slog.Error(diagnosticMessage) }
 func (diagnosticLogger) GetLogLevel() log.LevelType {
 	for _, level := range []struct {
 		slog slog.Level
@@ -102,7 +103,7 @@ func (e *executor) Execute(parent context.Context, operation, relative string, b
 	}
 	method := http.MethodGet
 	switch operation {
-	case "repositories", "artifact", "folder", "properties", "stats", "builds", "build":
+	case "version", "repositories", "artifact", "folder", "properties", "stats", "builds", "build":
 	case "aql":
 		method = http.MethodPost
 	default:
@@ -166,6 +167,10 @@ func validateOperation(operation, relative string) error {
 	}
 	allowedKeys := []string{}
 	switch operation {
+	case "version":
+		if relative != "api/system/version" {
+			return invalid
+		}
 	case "repositories":
 		if u.Path != "api/repositories" {
 			return invalid

@@ -69,7 +69,7 @@ func (m *metrics) instrumentTools(next mcp.MethodHandler) mcp.MethodHandler {
 		if params, ok := req.GetParams().(*mcp.CallToolParamsRaw); ok && params != nil {
 			// Keep labels bounded, even when clients send arbitrary tool names.
 			switch params.Name {
-			case "list_repositories", "search_artifacts", "get_artifact_info", "list_folder",
+			case "get_server_info", "list_repositories", "search_artifacts", "search_artifacts_sorted", "get_artifact_info", "list_folder",
 				"get_artifact_properties", "get_artifact_stats", "list_builds", "get_build_info":
 				tool = params.Name
 			}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"artifactory-mcp/internal/artifactory"
+	"artifactory-mcp/internal/search"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -27,8 +28,20 @@ func (f *fakeReader) ArtifactInfo(context.Context, artifactory.ArtifactInput) (a
 	return artifactory.ArtifactInfo{}, artifactory.NewError("forbidden", "token lacks permission")
 }
 
+func (*fakeReader) ServerInfo(context.Context) (artifactory.ServerInfo, error) {
+	return artifactory.ServerInfo{Version: "7.104.2", License: "Artifactory OSS", Addons: []string{}}, nil
+}
+
+func (*fakeReader) Search(context.Context, search.Filters) (artifactory.SearchResult, error) {
+	return artifactory.SearchResult{Artifacts: []artifactory.Artifact{}, Notices: []string{"unsorted"}}, nil
+}
+
+func (*fakeReader) SearchSorted(context.Context, search.Filters) (artifactory.SearchResult, error) {
+	return artifactory.SearchResult{Artifacts: []artifactory.Artifact{}, Notices: []string{"sorted"}}, nil
+}
+
 func TestDisabledTools(t *testing.T) {
-	all := []string{"list_repositories", "search_artifacts", "get_artifact_info", "list_folder", "get_artifact_properties", "get_artifact_stats", "list_builds", "get_build_info"}
+	all := []string{"get_server_info", "list_repositories", "search_artifacts", "search_artifacts_sorted", "get_artifact_info", "list_folder", "get_artifact_properties", "get_artifact_stats", "list_builds", "get_build_info"}
 	cases := [][]string{{"list_builds", "get_build_info"}, {"list_repositories", "list_repositories"}, all}
 	for _, name := range all {
 		cases = append(cases, []string{name})
@@ -98,7 +111,7 @@ func TestProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Tools) != 8 {
+	if len(listed.Tools) != 10 {
 		t.Fatalf("got %d tools", len(listed.Tools))
 	}
 	for _, tool := range listed.Tools {
@@ -153,5 +166,23 @@ func TestProtocol(t *testing.T) {
 	json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &category)
 	if category.Category != "invalid_input" {
 		t.Fatal("schema error lacks stable category")
+	}
+	for name, mode := range map[string]string{"search_artifacts": "unsorted", "search_artifacts_sorted": "sorted"} {
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: map[string]any{"repositories": []string{"libs"}, "limit": 1, "offset": 1}})
+		if err != nil || result.IsError {
+			t.Fatalf("call %s: %v %+v", name, err, result)
+		}
+		var out artifactory.SearchResult
+		if err := json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &out); err != nil || len(out.Notices) != 1 || out.Notices[0] != mode {
+			t.Fatalf("wrong search handler for %s: %+v %v", name, out, err)
+		}
+	}
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{Name: "get_server_info", Arguments: map[string]any{}})
+	if err != nil || result.IsError {
+		t.Fatalf("server info call: %v %+v", err, result)
+	}
+	var info artifactory.ServerInfo
+	if err := json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &info); err != nil || info.Version != "7.104.2" || info.License != "Artifactory OSS" {
+		t.Fatalf("invalid server info output: %+v %v", info, err)
 	}
 }

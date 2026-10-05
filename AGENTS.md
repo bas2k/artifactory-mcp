@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This Go 1.25+ project implements a read-only Artifactory MCP server over stdio.
+This Go 1.26+ project implements a read-only Artifactory MCP server over stdio.
 
 - `cmd/artifactory-mcp/`: executable entry point and subprocess tests.
 - `internal/config/`: environment configuration and input validation.

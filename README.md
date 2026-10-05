@@ -1,10 +1,10 @@
 # Artifactory MCP
 
-A read-only MCP server written in Go, supporting stdio and Streamable HTTP. It exposes artifact searches, repositories, storage metadata, properties, download statistics, and build information through eight typed tools. It uses the official MCP Go SDK v1.6.0 and jfrog-client-go v1.54.0.
+A read-only MCP server written in Go, supporting stdio and Streamable HTTP. It exposes server information, artifact searches, repositories, storage metadata, properties, download statistics, and build information through ten typed tools. It uses the official MCP Go SDK v1.6.0 and jfrog-client-go v1.54.0.
 
 ## Build and run
 
-Requires Go 1.25 or newer.
+Requires Go 1.26 or newer.
 
 ```sh
 go mod download
@@ -17,6 +17,17 @@ export ARTIFACTORY_ACCESS_TOKEN='your-access-token'
 By default, the process reads MCP JSON-RPC messages from stdin and writes protocol messages to stdout. Application and sanitized SDK diagnostics go to stderr in both transports. Credentials are never tool arguments. There is no startup permission probe: access to a known repository works even when repository discovery is forbidden.
 
 ## Configuration
+
+At startup, the server loads an optional `.env` file from its current working directory before validating configuration. Existing environment variables take precedence, including explicitly empty values; `--disable-tools` overrides both environment and `.env` values. This applies to both stdio and Streamable HTTP.
+
+For local use, copy `.env.example` to `.env`, replace the placeholder URL and token, and run the server from that directory:
+
+```sh
+cp .env.example .env
+./artifactory-mcp
+```
+
+The working directory is chosen by the shell or MCP client launching the process; it is not necessarily the executable's directory. Only `.env` is loaded automatically. A missing file is allowed; an unreadable or malformed file fails startup with a sanitized stderr diagnostic. Quote tokens containing `$` with single quotes to keep them literal. Secret dotenv files are excluded from Git and Docker build contexts.
 
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
@@ -66,7 +77,7 @@ Disable selected tools in either transport with the flag or environment variable
 MCP_DISABLE_TOOLS=list_builds,get_build_info ./artifactory-mcp
 ```
 
-The list is empty by default, enabling all eight tools. The flag replaces the environment value; `--disable-tools=` explicitly enables all tools. Names are case-sensitive; surrounding whitespace and empty entries are ignored, and repeated names are harmless. Unknown names fail startup. Disabled tools are omitted from `tools/list`, and `tools/call` rejects them without contacting Artifactory. See the tool names below.
+The list is empty by default, enabling all ten tools. The flag replaces the environment value; `--disable-tools=` explicitly enables all tools. Names are case-sensitive; surrounding whitespace and empty entries are ignored, and repeated names are harmless. Unknown names fail startup. Disabled tools are omitted from `tools/list`, and `tools/call` rejects them without contacting Artifactory. See the tool names below.
 
 ## Streamable HTTP
 
@@ -124,8 +135,10 @@ All tools carry read-only annotations. No upload, delete, property change, promo
 
 | Tool | Example arguments |
 | --- | --- |
+| `get_server_info` | `{}` |
 | `list_repositories` | `{"type":"local","package_type":"maven","project":"my-project"}` |
 | `search_artifacts` | `{"repositories":["libs-release-local"],"name_pattern":"*.jar","path_pattern":"org/example/*","properties":{"build.name":"example"},"created_after":"2026-01-01T00:00:00Z","min_size":1024,"limit":100,"offset":0}` |
+| `search_artifacts_sorted` | `{"repositories":["libs-release-local"],"name_pattern":"*.jar","limit":100,"offset":0}` |
 | `get_artifact_info` | `{"repository":"libs-release-local","path":"org/example/example-1.0.jar"}` |
 | `list_folder` | `{"repository":"libs-release-local","path":"org/example"}` |
 | `get_artifact_properties` | `{"repository":"libs-release-local","path":"org/example/example-1.0.jar","keys":["build.name","build.number"]}` |
@@ -134,6 +147,8 @@ All tools carry read-only annotations. No upload, delete, property change, promo
 | `get_build_info` | `{"name":"example","number":"42","project":"my-project","started":"2026-01-01T12:00:00.000+0000","module_limit":100,"module_offset":0,"detail_limit":100,"detail_offset":0}` |
 
 Repository `type` supports local, remote, virtual, and federated. All repository filters are optional. Search also supports `created_before`, `modified_after`, `modified_before`, and `max_size`. Property values use exact equality; name and path patterns use AQL wildcards. Property key selection happens locally after fetching the bounded properties response.
+
+`get_server_info` reads [`api/system/version`](https://docs.jfrog.com/administration/reference/getartifactoryversion) and returns `version`, optional `revision`, `addons`, and `license`. License preserves the server's `license` field (for example, `Artifactory OSS`) and is an empty string when absent. This is a server-reported value, not a capability probe. The tool does not query the admin-only license endpoint.
 
 Successful calls return `structuredContent` and the same JSON as text. HTTP and validation failures return `isError: true` with a JSON text object containing `category` and `message`.
 
@@ -152,7 +167,7 @@ Upstream error bodies are suppressed. The configured token is redacted from retu
 
 ## Paging and permissions
 
-Search pages default to 100 results and allow up to 500. Results sort by repository, path, and name; concurrent repository changes can affect offset paging. `has_more` means another page may exist when the requested page is full. `upstream_range` and `notices` preserve AQL metadata; `range.total` is not advertised as the complete match count.
+Both search tools accept the same filters, default to 100 results, and allow up to 500 per page. `search_artifacts` omits AQL sorting for compatibility with Artifactory OSS and returns results in upstream order. Ordering is not guaranteed, and offset pages can overlap or miss artifacts if ordering or repository contents change between requests. `search_artifacts_sorted` requests ascending AQL sorting by repository, path, and name; it requires sorting support and fails on OSS. Concurrent repository changes can still affect its offset paging. `has_more` means another page may exist when the requested page is full. `upstream_range` and `notices` preserve AQL metadata; `range.total` is not advertised as the complete match count.
 
 Build names use a case-sensitive substring `name_filter` and sort by name. Build and module/detail pages slice a bounded upstream response locally (`paging: "local_output"`). Each returned module independently applies `detail_offset` and `detail_limit` to its artifacts and dependencies. An output limit does not reduce the upstream fetch. Oversized upstream collections fail instead of being silently truncated. Folder children are immediate and bounded by the response byte limit.
 
@@ -186,13 +201,13 @@ export ARTIFACTORY_TEST_PROJECT=my-project
 export ARTIFACTORY_TEST_BUILD_NAME=example
 export ARTIFACTORY_TEST_BUILD_NUMBER=42
 export ARTIFACTORY_TEST_VERSION='<installed-version>'
-export ARTIFACTORY_TEST_EDITION='<installed-edition>'
+export ARTIFACTORY_TEST_LICENSE='<installed-license>'
 # Optional: ARTIFACTORY_TEST_BUILD_STARTED and ARTIFACTORY_TEST_DISCOVERY_FORBIDDEN=1
 # Supply a restricted token, at least two readable artifacts, and a build with modules.
 go test -tags=integration -v ./internal/jfrog
 ```
 
-No real Artifactory installation has been validated yet, so a supported server version/edition range is not claimed. Record the test output and installation version/edition before declaring release acceptance.
+No real Artifactory installation has been validated yet, so a supported server version/license range is not claimed. Record the test output and installation version/license before declaring release acceptance.
 
 ## Container and release preparation
 
@@ -212,4 +227,17 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 
 Pass `--env MCP_HTTP_AUTH_TOKEN` as well when an inbound token is exported in the host environment, and `--env MCP_METRICS_AUTH_TOKEN` when metrics authentication is enabled.
 
-The runtime container uses a non-root user. Mount custom CA files read-only and provide `ARTIFACTORY_CA_FILE` when needed. CI and a manual packaging workflow are supplied for a future GitHub hosting repository. Packaging creates portable binaries and a container archive for review; publication remains a hosting setup step.
+The runtime container uses a non-root user. Mount custom CA files read-only and provide `ARTIFACTORY_CA_FILE` when needed. The Dockerfile cross-compiles for the target platform, so multiarch builds do not require QEMU.
+
+The `Package and publish release` GitHub Actions workflow runs when a GitHub release is published or when started manually. It tests the project, packages portable binaries and a local container archive as workflow artifacts, then builds and pushes the same multiarch image to Docker Hub (`bas2k/artifactory-mcp`) and GitHub Container Registry (`ghcr.io/bas2k/artifactory-mcp`), supporting `linux/amd64` and `linux/arm64`.
+
+When triggered by a published release, the workflow also attaches the six portable binaries (Linux, macOS, and Windows on amd64 and arm64), the container archive, and `SHA256SUMS` to that release. The upload uses the automatic `GITHUB_TOKEN` with `contents: write` permission on the package job and replaces assets with matching names on reruns. Manual runs only save these files as workflow artifacts.
+
+Configure these secrets in the GitHub repository's **Settings → Secrets and variables → Actions**:
+
+- Secret `DOCKERHUB_USERNAME`: Docker Hub login username.
+- Secret `DOCKERHUB_TOKEN`: Docker Hub access token with write access to the destination repository.
+
+GHCR authentication uses the workflow's automatic `GITHUB_TOKEN` with `packages: write` permission on the publishing job; no additional secret is required. See [GitHub's Container registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry) for package access settings.
+
+Published releases use the exact release tag as the image tag and embedded binary version in both registries. Stable releases also push `latest`; prereleases do not. Manual runs use the selected commit's full SHA and do not update `latest`. Release tags must be valid Docker image tags (letters, digits, underscores, dots, or hyphens; at most 128 characters; no leading dot or hyphen).

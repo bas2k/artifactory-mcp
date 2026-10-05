@@ -23,6 +23,13 @@ type Repository struct {
 type Repositories struct {
 	Repositories []Repository `json:"repositories"`
 }
+
+type ServerInfo struct {
+	Version  string   `json:"version"`
+	Revision string   `json:"revision,omitempty"`
+	License  string   `json:"license" jsonschema:"Server-reported license value; empty when absent"`
+	Addons   []string `json:"addons"`
+}
 type ArtifactInput struct {
 	Repository string `json:"repository"`
 	Path       string `json:"path" jsonschema:"Relative artifact or folder path; empty path selects repository root for list_folder"`
@@ -156,8 +163,10 @@ type BuildInfo struct {
 }
 
 type Reader interface {
+	ServerInfo(context.Context) (ServerInfo, error)
 	ListRepositories(context.Context, RepositoryFilter) (Repositories, error)
 	Search(context.Context, search.Filters) (SearchResult, error)
+	SearchSorted(context.Context, search.Filters) (SearchResult, error)
 	ArtifactInfo(context.Context, ArtifactInput) (ArtifactInfo, error)
 	Folder(context.Context, ArtifactInput) (Folder, error)
 	Properties(context.Context, PropertiesInput) (Properties, error)

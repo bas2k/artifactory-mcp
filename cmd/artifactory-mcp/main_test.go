@@ -35,10 +35,10 @@ func TestStdioHasOnlyProtocolMessages(t *testing.T) {
 		args []string
 		want int
 	}{
-		{name: "default", want: 8},
-		{name: "environment", env: "list_builds,get_build_info", want: 6},
-		{name: "flag overrides environment", env: "list_builds,get_build_info", args: []string{"--disable-tools=list_repositories"}, want: 7},
-		{name: "empty flag clears environment", env: "list_builds,get_build_info", args: []string{"--disable-tools="}, want: 8},
+		{name: "default", want: 10},
+		{name: "environment", env: "list_builds,get_build_info", want: 8},
+		{name: "flag overrides environment", env: "list_builds,get_build_info", args: []string{"--disable-tools=list_repositories"}, want: 9},
+		{name: "empty flag clears environment", env: "list_builds,get_build_info", args: []string{"--disable-tools="}, want: 10},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("MCP_DISABLE_TOOLS", test.env)
@@ -50,9 +50,15 @@ func TestStdioHasOnlyProtocolMessages(t *testing.T) {
 func testStdioHasOnlyProtocolMessages(t *testing.T, args []string, wantTools int) {
 	t.Helper()
 	command := exec.Command(os.Args[0], append([]string{"-test.run=^TestProcessHelper$", "--"}, args...)...)
+	command.Dir = t.TempDir()
 	t.Setenv("MCP_TRANSPORT", "stdio")
 	t.Setenv("MCP_LOG_LEVEL", "debug")
 	command.Env = append(os.Environ(), "ARTIFACTORY_MCP_TEST_PROCESS=1", "ARTIFACTORY_URL=https://example.test/proxy/artifactory", "ARTIFACTORY_ACCESS_TOKEN=smoke-secret-token", "ARTIFACTORY_REPOSITORIES=libs", "ARTIFACTORY_CA_FILE=", "ARTIFACTORY_ALLOW_HTTP=false", "ARTIFACTORY_REQUEST_TIMEOUT=30s", "ARTIFACTORY_RESPONSE_LIMIT=5242880")
+	assertStdioProtocol(t, command, wantTools)
+}
+
+func assertStdioProtocol(t *testing.T, command *exec.Cmd, wantTools int) {
+	t.Helper()
 	input, err := command.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +95,7 @@ func testStdioHasOnlyProtocolMessages(t *testing.T, args []string, wantTools int
 	if err := command.Wait(); err != nil {
 		t.Fatal(err, diagnostics.String())
 	}
-	if diagnostics.Len() == 0 || strings.Contains(diagnostics.String(), "smoke-secret-token") {
+	if diagnostics.Len() == 0 || strings.Contains(diagnostics.String(), "smoke-secret-token") || strings.Contains(diagnostics.String(), "dotenv-secret-token") {
 		t.Fatal("stderr missing logs or exposed token")
 	}
 }
@@ -101,6 +107,7 @@ func TestLogLevelControlsStartup(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestProcessHelper$")
+			command.Dir = t.TempDir()
 			command.Env = append(os.Environ(), "ARTIFACTORY_MCP_TEST_PROCESS=1", "MCP_TRANSPORT=stdio", "MCP_LOG_LEVEL="+level,
 				"ARTIFACTORY_URL=https://example.test/artifactory", "ARTIFACTORY_ACCESS_TOKEN=smoke-secret-token",
 				"ARTIFACTORY_REPOSITORIES=libs", "ARTIFACTORY_CA_FILE=", "ARTIFACTORY_ALLOW_HTTP=false",

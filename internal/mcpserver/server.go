@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 
 	"artifactory-mcp/internal/artifactory"
-	"artifactory-mcp/internal/search"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -58,9 +57,11 @@ func add[In, Out any](server *mcp.Server, name, description string, handler func
 func New(reader artifactory.Reader, version string, disabledTools ...string) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "artifactory-mcp", Version: version}, nil)
 	add(server, "list_repositories", "Discover repositories visible to the token and configured allowlist.", reader.ListRepositories)
-	add(server, "search_artifacts", "Search indexed artifacts using typed AQL filters and bounded offset paging.", func(ctx context.Context, in search.Filters) (artifactory.SearchResult, error) {
-		return reader.Search(ctx, in)
+	add(server, "get_server_info", "Read Artifactory version, revision, installed add-ons, and server-reported license value. License is empty when absent.", func(ctx context.Context, _ struct{}) (artifactory.ServerInfo, error) {
+		return reader.ServerInfo(ctx)
 	})
+	add(server, "search_artifacts", "Search indexed artifacts using typed AQL filters and bounded offset paging in upstream order. Compatible with Artifactory OSS; ordering is not guaranteed.", reader.Search)
+	add(server, "search_artifacts_sorted", "Search indexed artifacts sorted ascending by repository, path, and name using typed AQL filters and bounded offset paging. Requires AQL sorting support; unavailable in Artifactory OSS.", reader.SearchSorted)
 	add(server, "get_artifact_info", "Read artifact size, timestamps, MIME type, and checksums.", reader.ArtifactInfo)
 	add(server, "list_folder", "List immediate children using ordinary folder information.", reader.Folder)
 	add(server, "get_artifact_properties", "Read artifact properties, optionally selecting keys after a bounded fetch.", reader.Properties)

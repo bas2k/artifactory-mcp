@@ -16,6 +16,7 @@ func TestDisabledToolsConfiguration(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "default"},
+		{name: "new tools", env: "get_server_info,search_artifacts_sorted", want: []string{"get_server_info", "search_artifacts_sorted"}},
 		{name: "environment", env: " list_builds, get_build_info ", want: []string{"list_builds", "get_build_info"}},
 		{name: "empty entries", env: " , list_builds,, ", want: []string{"list_builds"}},
 		{name: "duplicates", env: "list_builds,list_builds", want: []string{"list_builds", "list_builds"}},

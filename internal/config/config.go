@@ -96,7 +96,7 @@ func Load(getenv func(string) string, args ...string) (Config, error) {
 func (c Config) Validate() error {
 	for _, name := range c.DisabledTools {
 		switch name {
-		case "list_repositories", "search_artifacts", "get_artifact_info", "list_folder",
+		case "get_server_info", "list_repositories", "search_artifacts", "search_artifacts_sorted", "get_artifact_info", "list_folder",
 			"get_artifact_properties", "get_artifact_stats", "list_builds", "get_build_info":
 		default:
 			return fmt.Errorf("MCP_DISABLE_TOOLS / --disable-tools contains an unknown tool name")

@@ -2,3 +2,7 @@
 .git
 artifactory-mcp
 dist
+.env
+.vscode/
+.env.*
+!.env.example

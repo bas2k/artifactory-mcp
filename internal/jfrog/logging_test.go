@@ -19,7 +19,7 @@ func TestSDKLoggingLevelsAndRedaction(t *testing.T) {
 		sdkLevel log.LevelType
 		want     []string
 	}{
-		{slog.LevelDebug, log.DEBUG, []string{"DEBUG", "INFO", "WARN", "ERROR", "ERROR"}},
+		{slog.LevelDebug, log.DEBUG, []string{"DEBUG", "DEBUG", "INFO", "WARN", "ERROR", "ERROR"}},
 		{slog.LevelInfo, log.INFO, []string{"INFO", "WARN", "ERROR", "ERROR"}},
 		{slog.LevelWarn, log.WARN, []string{"WARN", "ERROR", "ERROR"}},
 		{slog.LevelError, log.ERROR, []string{"ERROR", "ERROR"}},
@@ -30,7 +30,7 @@ func TestSDKLoggingLevelsAndRedaction(t *testing.T) {
 			if got := log.GetLogger().GetLogLevel(); got != test.sdkLevel {
 				t.Fatalf("SDK log level = %v, want %v", got, test.sdkLevel)
 			}
-			for _, emit := range []func(...interface{}){log.Debug, log.Info, log.Warn, log.Error, log.Output} {
+			for _, emit := range []func(...interface{}){log.Verbose, log.Debug, log.Info, log.Warn, log.Error, log.Output} {
 				emit("credential-secret", "https://user:password@example.test", "upstream-body")
 			}
 			for _, sensitive := range []string{"credential-secret", "password", "upstream-body"} {
