@@ -1,0 +1,5 @@
+/artifactory-mcp
+/dist/
+.codegraph/
+.env
+.github/

@@ -1,0 +1,1 @@
+{"results":[{"repo":"libs","path":"org/example","name":"example-1.0.jar","size":9007199254740993,"actual_sha1":"0123456789abcdef","sha256":"abcdef","created":"2026-01-01T00:00:00Z"}],"range":{"start_pos":0,"end_pos":1,"total":1},"notices":["fixture truncation notice"]}
