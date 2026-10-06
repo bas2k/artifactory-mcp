@@ -145,6 +145,9 @@ func TestMetricsHTTPAndToolCalls(t *testing.T) {
 		{name: "list_repositories", arguments: map[string]any{}},
 		{name: "get_server_info", arguments: map[string]any{"unexpected": "private-value"}, toolError: true},
 		{name: "search_artifacts_sorted", arguments: map[string]any{"limit": "invalid"}, toolError: true},
+		{name: "search_packages", arguments: map[string]any{"package_type": "docker", "limit": "invalid"}, toolError: true},
+		{name: "list_package_versions", arguments: map[string]any{"package_type": "docker", "name": "private-package", "limit": "invalid"}, toolError: true},
+		{name: "list_build_runs", arguments: map[string]any{"name": "private-build", "limit": "invalid"}, toolError: true},
 		{name: "get_artifact_info", arguments: map[string]any{"repository": "libs", "path": "private-artifact"}, toolError: true},
 		{name: "list_repositories", arguments: map[string]any{"unexpected": "private-value"}, toolError: true},
 		{name: "unknown-private-tool", arguments: map[string]any{}, protocolError: true},
@@ -175,6 +178,12 @@ func TestMetricsHTTPAndToolCalls(t *testing.T) {
 		`artifactory_mcp_tool_calls_total{outcome="error",tool="get_artifact_info"} 1`,
 		`artifactory_mcp_tool_calls_total{outcome="error",tool="get_server_info"} 1`,
 		`artifactory_mcp_tool_calls_total{outcome="error",tool="search_artifacts_sorted"} 1`,
+		`artifactory_mcp_tool_calls_total{outcome="error",tool="search_packages"} 1`,
+		`artifactory_mcp_tool_calls_total{outcome="error",tool="list_package_versions"} 1`,
+		`artifactory_mcp_tool_calls_total{outcome="error",tool="list_build_runs"} 1`,
+		`artifactory_mcp_tool_call_duration_seconds_count{outcome="error",tool="search_packages"} 1`,
+		`artifactory_mcp_tool_call_duration_seconds_count{outcome="error",tool="list_package_versions"} 1`,
+		`artifactory_mcp_tool_call_duration_seconds_count{outcome="error",tool="list_build_runs"} 1`,
 		`artifactory_mcp_tool_calls_total{outcome="error",tool="unknown"} 1`,
 		`artifactory_mcp_tool_call_duration_seconds_count{outcome="success",tool="list_repositories"} 1`,
 		`go_goroutines`,
@@ -184,7 +193,7 @@ func TestMetricsHTTPAndToolCalls(t *testing.T) {
 			t.Errorf("scrape missing %s", want)
 		}
 	}
-	for _, sensitive := range []string{"inbound-secret", "metrics-secret", "private-artifact", "private-value", "unknown-private-tool"} {
+	for _, sensitive := range []string{"inbound-secret", "metrics-secret", "private-artifact", "private-package", "private-build", "private-value", "unknown-private-tool"} {
 		if strings.Contains(string(body), sensitive) {
 			t.Errorf("metrics exposed %s", sensitive)
 		}

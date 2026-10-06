@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	app "artifactory-mcp/internal/artifactory"
@@ -79,8 +80,9 @@ func testHTTPServer(handler http.Handler, tls bool) *httptest.Server {
 }
 func memoryServer(handler http.Handler) *httptest.Server    { return testHTTPServer(handler, false) }
 func memoryTLSServer(handler http.Handler) *httptest.Server { return testHTTPServer(handler, true) }
-func newTestClient(c config.Config) (*app.Client, error) {
-	return newClient(c, func(ctx context.Context, c config.Config, certificates string) (sdk.ArtifactoryServicesManager, error) {
+func newTestClient(t *testing.T, c config.Config) *app.Client {
+	t.Helper()
+	client, err := newClient(c, func(ctx context.Context, c config.Config, certificates string) (sdk.ArtifactoryServicesManager, error) {
 		manager, err := newManager(ctx, c, certificates)
 		if err != nil {
 			return nil, err
@@ -91,6 +93,11 @@ func newTestClient(c config.Config) (*app.Client, error) {
 		transport.DialContext = dialMemory
 		return manager, nil
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { client.Close() })
+	return client
 }
 
 // Kernel pipes provide TCP-like buffering without network listen permissions;

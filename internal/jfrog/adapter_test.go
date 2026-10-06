@@ -32,7 +32,7 @@ func TestHTTPContracts(t *testing.T) {
 		if !strings.HasPrefix(r.URL.Path, "/proxy/artifactory/api/") {
 			t.Errorf("lost reverse proxy prefix: %s", r.URL.Path)
 		}
-		if r.Method != http.MethodGet && !(r.Method == http.MethodPost && r.URL.Path == "/proxy/artifactory/api/search/aql") {
+		if r.Method != http.MethodGet && (r.Method != http.MethodPost || r.URL.Path != "/proxy/artifactory/api/search/aql") {
 			t.Errorf("mutating request: %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -59,11 +59,12 @@ func TestHTTPContracts(t *testing.T) {
 			if !strings.Contains(r.RequestURI, "%20") || !strings.Contains(r.RequestURI, "%3B") {
 				t.Errorf("unescaped path: %s", r.RequestURI)
 			}
-			if r.URL.Query().Has("properties") {
+			switch {
+			case r.URL.Query().Has("properties"):
 				io.WriteString(w, `{"properties":{"wanted":["value"],"credential":["test-token"]}}`)
-			} else if r.URL.Query().Has("stats") {
+			case r.URL.Query().Has("stats"):
 				io.WriteString(w, `{"downloadCount":9007199254740993,"lastDownloaded":123}`)
-			} else {
+			default:
 				io.WriteString(w, `{"repo":"libs","path":"/目录/a space;tag.jar","size":"9007199254740993","checksums":{"sha256":"abcdef"}}`)
 			}
 		case "/proxy/artifactory/api/storage/libs":
@@ -85,11 +86,7 @@ func TestHTTPContracts(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client, err := newTestClient(settings(server.URL))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
+	client := newTestClient(t, settings(server.URL))
 	ctx := context.Background()
 	repos, err := client.ListRepositories(ctx, app.RepositoryFilter{Type: "local", PackageType: "generic", Project: "p"})
 	if err != nil || len(repos.Repositories) != 1 {
@@ -148,12 +145,8 @@ func TestFailuresAndBoundedReads(t *testing.T) {
 				io.WriteString(w, `{"errors":[{"message":"test-token secret upstream content"}]}`)
 			}))
 			defer s.Close()
-			c, err := newTestClient(settings(s.URL))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer c.Close()
-			_, err = c.ArtifactInfo(context.Background(), app.ArtifactInput{Repository: "libs", Path: "a.jar"})
+			c := newTestClient(t, settings(s.URL))
+			_, err := c.ArtifactInfo(context.Background(), app.ArtifactInput{Repository: "libs", Path: "a.jar"})
 			if err == nil || app.Classify(err).Category != category || strings.Contains(err.Error(), "test-token") {
 				t.Fatalf("wrong failure: %v", err)
 			}
@@ -171,12 +164,8 @@ func TestFailuresAndBoundedReads(t *testing.T) {
 			defer s.Close()
 			cfg := settings(s.URL)
 			cfg.ResponseLimit = test.limit
-			c, err := newTestClient(cfg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer c.Close()
-			_, err = c.ArtifactInfo(context.Background(), app.ArtifactInput{Repository: "libs", Path: "a.jar"})
+			c := newTestClient(t, cfg)
+			_, err := c.ArtifactInfo(context.Background(), app.ArtifactInput{Repository: "libs", Path: "a.jar"})
 			if err == nil || app.Classify(err).Category != test.category {
 				t.Fatalf("unexpected error %v", err)
 			}
@@ -219,11 +208,7 @@ func TestSearchOSSPaging(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client, err := newTestClient(settings(server.URL))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
+	client := newTestClient(t, settings(server.URL))
 	for offset, name := range []string{"z.jar", "a.jar"} {
 		result, err := client.Search(context.Background(), search.Filters{Limit: 1, Offset: offset})
 		if err != nil {
@@ -263,11 +248,7 @@ func TestServerInfoHTTPContract(t *testing.T) {
 				io.WriteString(w, test.body)
 			}))
 			defer server.Close()
-			client, err := newTestClient(settings(server.URL))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer client.Close()
+			client := newTestClient(t, settings(server.URL))
 			info, err := client.ServerInfo(context.Background())
 			if test.category != "" {
 				if err == nil || app.Classify(err).Category != test.category {
@@ -298,11 +279,7 @@ func TestCancellationAndRedirect(t *testing.T) {
 		close(upstreamCanceled)
 	}))
 	defer s.Close()
-	c, err := newTestClient(settings(s.URL))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
+	c := newTestClient(t, settings(s.URL))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
@@ -333,12 +310,8 @@ func TestCancellationAndRedirect(t *testing.T) {
 	defer target.Close()
 	redirect := memoryServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target.URL, http.StatusFound) }))
 	defer redirect.Close()
-	other, err := newTestClient(settings(redirect.URL))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer other.Close()
-	_, err = other.ArtifactInfo(context.Background(), app.ArtifactInput{Repository: "libs", Path: "a.jar"})
+	other := newTestClient(t, settings(redirect.URL))
+	_, err := other.ArtifactInfo(context.Background(), app.ArtifactInput{Repository: "libs", Path: "a.jar"})
 	if err == nil || leaked.Load() {
 		t.Fatal("SDK followed upstream redirect")
 	}
@@ -349,11 +322,8 @@ func TestCustomCA(t *testing.T) {
 	}))
 	defer s.Close()
 	cfg := settings(s.URL)
-	c, err := newTestClient(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = c.ArtifactInfo(context.Background(), app.ArtifactInput{Repository: "libs", Path: "a.jar"})
+	c := newTestClient(t, cfg)
+	_, err := c.ArtifactInfo(context.Background(), app.ArtifactInput{Repository: "libs", Path: "a.jar"})
 	c.Close()
 	if err == nil {
 		t.Fatal("untrusted TLS certificate accepted")
@@ -363,11 +333,7 @@ func TestCustomCA(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.CAFile = ca
-	c, err = newTestClient(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
+	c = newTestClient(t, cfg)
 	_, err = c.ArtifactInfo(context.Background(), app.ArtifactInput{Repository: "libs", Path: "a.jar"})
 	if err != nil {
 		t.Fatalf("custom CA was not trusted: %v", err)
@@ -393,11 +359,7 @@ func TestClosedReadersAndDiscoveryPermissions(t *testing.T) {
 	defer s.Close()
 	cfg := settings(s.URL)
 	cfg.ResponseLimit = 64
-	c, err := newTestClient(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
+	c := newTestClient(t, cfg)
 	if _, err := c.ListRepositories(context.Background(), app.RepositoryFilter{}); err == nil || app.Classify(err).Category != "forbidden" {
 		t.Fatalf("discovery denial was hidden: %v", err)
 	}

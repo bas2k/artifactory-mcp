@@ -13,7 +13,11 @@ import (
 func TestSDKLoggingLevelsAndRedaction(t *testing.T) {
 	previous := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(previous) })
-	ConfigureLogging()
+	ConfigureLogging("credential-secret", "other-secret")
+	t.Cleanup(func() {
+		diagnosticTokens.Delete("credential-secret")
+		diagnosticTokens.Delete("other-secret")
+	})
 	for _, test := range []struct {
 		level    slog.Level
 		sdkLevel log.LevelType
@@ -31,9 +35,9 @@ func TestSDKLoggingLevelsAndRedaction(t *testing.T) {
 				t.Fatalf("SDK log level = %v, want %v", got, test.sdkLevel)
 			}
 			for _, emit := range []func(...interface{}){log.Verbose, log.Debug, log.Info, log.Warn, log.Error, log.Output} {
-				emit("credential-secret", "https://user:password@example.test", "upstream-body")
+				emit("Sending HTTP GET request to:", "https://example.test/api/system/version", "credential-secret", "other-secret")
 			}
-			for _, sensitive := range []string{"credential-secret", "password", "upstream-body"} {
+			for _, sensitive := range []string{"credential-secret", "other-secret"} {
 				if strings.Contains(output.String(), sensitive) {
 					t.Fatal("SDK diagnostic exposed sensitive content")
 				}
@@ -44,7 +48,7 @@ func TestSDKLoggingLevelsAndRedaction(t *testing.T) {
 			}
 			for i, line := range lines {
 				var entry struct{ Level, Msg string }
-				if err := json.Unmarshal([]byte(line), &entry); err != nil || entry.Level != test.want[i] || entry.Msg != diagnosticMessage {
+				if err := json.Unmarshal([]byte(line), &entry); err != nil || entry.Level != test.want[i] || entry.Msg != "Sending HTTP GET request to: https://example.test/api/system/version [REDACTED] [REDACTED]" {
 					t.Fatalf("unexpected log entry: %s (%v)", line, err)
 				}
 			}

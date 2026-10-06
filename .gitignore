@@ -3,6 +3,7 @@
 .codegraph/
 .env
 .vscode/
+.idea/
 .env.*
 !.env.example
 TODO.md

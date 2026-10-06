@@ -28,12 +28,12 @@ func TestDotEnvStartup(t *testing.T) {
 		args []string
 		want int
 	}{
-		{name: "file only", file: testDotEnv, want: 8},
-		{name: "environment overrides file", file: testDotEnv + "ARTIFACTORY_URL=invalid\nARTIFACTORY_ACCESS_TOKEN='invalid token'\n", env: []string{"ARTIFACTORY_URL=https://example.test/artifactory", "ARTIFACTORY_ACCESS_TOKEN=smoke-secret-token", "MCP_DISABLE_TOOLS=list_repositories"}, want: 9},
-		{name: "empty environment overrides file", file: testDotEnv, env: []string{"MCP_DISABLE_TOOLS="}, want: 10},
-		{name: "flag overrides file", file: testDotEnv, args: []string{"--disable-tools=list_repositories"}, want: 9},
-		{name: "empty flag overrides file", file: testDotEnv, args: []string{"--disable-tools="}, want: 10},
-		{name: "missing file", env: []string{"ARTIFACTORY_URL=https://example.test/artifactory", "ARTIFACTORY_ACCESS_TOKEN=smoke-secret-token"}, want: 10},
+		{name: "file only", file: testDotEnv, want: 11},
+		{name: "environment overrides file", file: testDotEnv + "ARTIFACTORY_URL=invalid\nARTIFACTORY_ACCESS_TOKEN='invalid token'\n", env: []string{"ARTIFACTORY_URL=https://example.test/artifactory", "ARTIFACTORY_ACCESS_TOKEN=smoke-secret-token", "MCP_DISABLE_TOOLS=list_repositories"}, want: 12},
+		{name: "empty environment overrides file", file: testDotEnv, env: []string{"MCP_DISABLE_TOOLS="}, want: 13},
+		{name: "flag overrides file", file: testDotEnv, args: []string{"--disable-tools=list_repositories"}, want: 12},
+		{name: "empty flag overrides file", file: testDotEnv, args: []string{"--disable-tools="}, want: 13},
+		{name: "missing file", env: []string{"ARTIFACTORY_URL=https://example.test/artifactory", "ARTIFACTORY_ACCESS_TOKEN=smoke-secret-token"}, want: 13},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			dir := t.TempDir()

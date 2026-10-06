@@ -1,6 +1,8 @@
 # Pinned SDK audit
 
-Pins: `github.com/jfrog/jfrog-client-go v1.54.0` (requires Go 1.23.7), `github.com/modelcontextprotocol/go-sdk v1.6.0` (requires Go 1.26.0). The module selects Go 1.26.0. These observations come from the downloaded tagged source, not master.
+Pins: `github.com/jfrog/jfrog-client-go v1.55.0` (requires Go 1.24.6), `github.com/modelcontextprotocol/go-sdk v1.8.0` (requires Go 1.25.0). The module selects Go 1.26.0.
+
+Versions and Go requirements are verified from pinned module metadata. Revalidation of the control observations below against these pins is pending.
 
 | Control | Pinned SDK behavior | Current application choice |
 | --- | --- | --- |
@@ -11,7 +13,7 @@ Pins: `github.com/jfrog/jfrog-client-go v1.54.0` (requires Go 1.23.7), `github.c
 | Redirects | Some native methods request redirects; POST has a separate redirect implementation | SDK `Send(..., followRedirect=false, closeBody=false, ...)` |
 | Custom CA | `SetCertificatesPath` accepts a directory; system roots plus directory PEM contents | Validate selected file, copy into private temporary directory, clean up on shutdown |
 | TLS | SDK creates a verified TLS client with minimum TLS 1.2 | `SetInsecureTls(false)` |
-| Logging | SDK errors can include response bodies; `Output` normally writes stdout | Install SDK logger before operations; both destinations emit fixed JSON events to stderr |
+| Logging | SDK errors can include response bodies; `Output` normally writes stdout | Install SDK logger before operations; forward diagnostics as JSON to stderr with configured access tokens redacted |
 | Streams | Native wrappers generally decode fully buffered responses; AQL returns an open reader | SDK authenticated streaming `Send`, cap bytes before decoding, close readers on every path |
 | Native methods | Repository filtering, AQL, FileInfo, FolderInfo, GetItemProps, GetBuildInfo are present | Streaming client used to preserve raw envelopes and enforce pre-decoding bounds without hooks |
 | Builds | `BuildInfoParams` supports name, number, project; no started parameter or all-build list service method | Fixed build endpoints through the SDK client |

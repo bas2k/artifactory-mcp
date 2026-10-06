@@ -16,7 +16,8 @@ COPY --from=build --chown=65532:65532 /runtime-tmp /tmp
 COPY --from=build /out/artifactory-mcp /artifactory-mcp
 USER 65532:65532
 
-ENV MCP_HTTP_ADDR=0.0.0.0:8080
+ENV MCP_HTTP_ADDR=0.0.0.0:8080 \
+    MCP_TRANSPORT=streamable-http
 
 EXPOSE 8080
 

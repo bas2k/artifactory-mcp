@@ -4,12 +4,14 @@ package jfrog
 import (
 	"context"
 	"crypto/x509"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -22,19 +24,30 @@ import (
 	"github.com/jfrog/jfrog-client-go/utils/log"
 )
 
-// SDK diagnostics may embed credentials, query values, or upstream bodies.
-// Forward only fixed events through the configured logger, including explicit
-// SDK Output calls. Never format or forward the original arguments.
+// Forward SDK diagnostics through slog, redacting configured access tokens.
 type diagnosticLogger struct{}
 
-const diagnosticMessage = "JFrog SDK diagnostic; details suppressed"
+var diagnosticTokens sync.Map
 
-func (diagnosticLogger) Verbose(...interface{}) { slog.Debug(diagnosticMessage) }
-func (diagnosticLogger) Debug(...interface{})   { slog.Debug(diagnosticMessage) }
-func (diagnosticLogger) Info(...interface{})    { slog.Info(diagnosticMessage) }
-func (diagnosticLogger) Warn(...interface{})    { slog.Warn(diagnosticMessage) }
-func (diagnosticLogger) Error(...interface{})   { slog.Error(diagnosticMessage) }
-func (diagnosticLogger) Output(...interface{})  { slog.Error(diagnosticMessage) }
+func (l diagnosticLogger) Verbose(a ...interface{}) { l.emit(slog.LevelDebug, a...) }
+func (l diagnosticLogger) Debug(a ...interface{})   { l.emit(slog.LevelDebug, a...) }
+func (l diagnosticLogger) Info(a ...interface{})    { l.emit(slog.LevelInfo, a...) }
+func (l diagnosticLogger) Warn(a ...interface{})    { l.emit(slog.LevelWarn, a...) }
+func (l diagnosticLogger) Error(a ...interface{})   { l.emit(slog.LevelError, a...) }
+func (l diagnosticLogger) Output(a ...interface{})  { l.emit(slog.LevelError, a...) }
+
+func (diagnosticLogger) emit(level slog.Level, a ...interface{}) {
+	ctx := context.Background()
+	if !slog.Default().Enabled(ctx, level) {
+		return
+	}
+	message := strings.TrimSuffix(fmt.Sprintln(a...), "\n")
+	diagnosticTokens.Range(func(token, _ any) bool {
+		message = strings.ReplaceAll(message, token.(string), "[REDACTED]")
+		return true
+	})
+	slog.Log(ctx, level, message)
+}
 func (diagnosticLogger) GetLogLevel() log.LevelType {
 	for _, level := range []struct {
 		slog slog.Level
@@ -49,7 +62,12 @@ func (diagnosticLogger) GetLogLevel() log.LevelType {
 
 var logging sync.Once
 
-func ConfigureLogging() {
+func ConfigureLogging(tokens ...string) {
+	for _, token := range append(tokens, os.Getenv("ARTIFACTORY_ACCESS_TOKEN")) {
+		if token != "" {
+			diagnosticTokens.Store(token, struct{}{})
+		}
+	}
 	logging.Do(func() {
 		log.SetLogger(diagnosticLogger{})
 	})
@@ -64,7 +82,7 @@ type executor struct {
 func New(c config.Config) (*app.Client, error) { return newClient(c, newManager) }
 
 func newClient(c config.Config, factory func(context.Context, config.Config, string) (sdk.ArtifactoryServicesManager, error)) (*app.Client, error) {
-	ConfigureLogging()
+	ConfigureLogging(c.Token)
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
@@ -103,7 +121,7 @@ func (e *executor) Execute(parent context.Context, operation, relative string, b
 	}
 	method := http.MethodGet
 	switch operation {
-	case "version", "repositories", "artifact", "folder", "properties", "stats", "builds", "build":
+	case "version", "repositories", "artifact", "folder", "properties", "stats", "builds", "build", "build_runs":
 	case "aql":
 		method = http.MethodPost
 	default:
@@ -191,6 +209,12 @@ func validateOperation(operation, relative string) error {
 			return invalid
 		}
 		allowedKeys = []string{"project", "started"}
+	case "build_runs":
+		name := strings.TrimPrefix(u.Path, "api/build/")
+		if !strings.HasPrefix(u.Path, "api/build/") || config.ValidateSegment(name) != nil {
+			return invalid
+		}
+		allowedKeys = []string{"project"}
 	case "artifact", "folder", "properties", "stats":
 		if !strings.HasPrefix(u.Path, "api/storage/") || config.ValidatePath(strings.TrimPrefix(u.Path, "api/storage/"), false) != nil {
 			return invalid
@@ -211,13 +235,7 @@ func validateOperation(operation, relative string) error {
 		return invalid
 	}
 	for key, values := range q {
-		ok := false
-		for _, allowed := range allowedKeys {
-			if key == allowed {
-				ok = true
-			}
-		}
-		if !ok || len(values) != 1 {
+		if !slices.Contains(allowedKeys, key) || len(values) != 1 {
 			return invalid
 		}
 	}

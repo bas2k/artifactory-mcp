@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -21,7 +22,7 @@ type metrics struct {
 }
 
 func newMetrics() *metrics {
-	buckets := append(append([]float64{}, prometheus.DefBuckets...), 30, 60, 120, 300, 600)
+	buckets := slices.Concat(prometheus.DefBuckets, []float64{30, 60, 120, 300, 600})
 	m := &metrics{
 		registry: prometheus.NewRegistry(),
 		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -70,7 +71,7 @@ func (m *metrics) instrumentTools(next mcp.MethodHandler) mcp.MethodHandler {
 			// Keep labels bounded, even when clients send arbitrary tool names.
 			switch params.Name {
 			case "get_server_info", "list_repositories", "search_artifacts", "search_artifacts_sorted", "get_artifact_info", "list_folder",
-				"get_artifact_properties", "get_artifact_stats", "list_builds", "get_build_info":
+				"get_artifact_properties", "get_artifact_stats", "list_builds", "get_build_info", "list_build_runs", "search_packages", "list_package_versions":
 				tool = params.Name
 			}
 		}

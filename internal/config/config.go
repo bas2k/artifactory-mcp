@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -97,7 +98,7 @@ func (c Config) Validate() error {
 	for _, name := range c.DisabledTools {
 		switch name {
 		case "get_server_info", "list_repositories", "search_artifacts", "search_artifacts_sorted", "get_artifact_info", "list_folder",
-			"get_artifact_properties", "get_artifact_stats", "list_builds", "get_build_info":
+			"get_artifact_properties", "get_artifact_stats", "list_builds", "get_build_info", "list_build_runs", "search_packages", "list_package_versions":
 		default:
 			return fmt.Errorf("MCP_DISABLE_TOOLS / --disable-tools contains an unknown tool name")
 		}
@@ -120,7 +121,7 @@ func (c Config) Validate() error {
 	if err != nil || u.Hostname() == "" || u.Opaque != "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(c.URL, "#") {
 		return fmt.Errorf("ARTIFACTORY_URL must be a full service URL without userinfo, query, or fragment")
 	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && c.AllowHTTP) {
+	if u.Scheme != "https" && (u.Scheme != "http" || !c.AllowHTTP) {
 		return fmt.Errorf("ARTIFACTORY_URL requires HTTPS (HTTP requires ARTIFACTORY_ALLOW_HTTP=true)")
 	}
 	if u.Path != "" && u.Path != "/" {
@@ -165,13 +166,5 @@ func ValidatePath(s string, allowEmpty bool) error {
 }
 
 func Allowed(repo string, allowlist []string) bool {
-	if len(allowlist) == 0 {
-		return true
-	}
-	for _, r := range allowlist {
-		if r == repo {
-			return true
-		}
-	}
-	return false
+	return len(allowlist) == 0 || slices.Contains(allowlist, repo)
 }

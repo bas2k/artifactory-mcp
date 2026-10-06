@@ -142,11 +142,26 @@ func TestHTTPProtocol(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer session.Close()
+			guide := session.InitializeResult().Instructions
+			if guide == "" || session.InitializeResult().Capabilities.Resources == nil {
+				t.Fatal("missing instructions or resources capability over HTTP")
+			}
+			resources, err := session.ListResources(ctx, nil)
+			if err != nil || len(resources.Resources) != 1 || resources.Resources[0].URI != "artifactory://instructions" {
+				t.Fatalf("resources/list over HTTP: %+v, %v", resources, err)
+			}
+			content, err := session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "artifactory://instructions"})
+			if err != nil || len(content.Contents) != 1 || content.Contents[0].Text != guide || content.Contents[0].MIMEType != "text/markdown" {
+				t.Fatalf("resources/read over HTTP: %+v, %v", content, err)
+			}
+			if r.calls.Load() != 0 {
+				t.Fatal("reading instructions contacted Artifactory")
+			}
 			tools, err := session.ListTools(ctx, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(tools.Tools) != 10 {
+			if len(tools.Tools) != 13 {
 				t.Fatalf("got %d tools", len(tools.Tools))
 			}
 			for _, tool := range tools.Tools {

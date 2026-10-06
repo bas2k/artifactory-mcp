@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"artifactory-mcp/internal/config"
 	"artifactory-mcp/internal/search"
@@ -19,7 +19,7 @@ type Client struct {
 }
 
 func New(executor Executor, allowlist []string) *Client {
-	return &Client{executor, append([]string(nil), allowlist...)}
+	return &Client{executor, slices.Clone(allowlist)}
 }
 func (c *Client) read(ctx context.Context, op, path string, body []byte, out any) error {
 	data, err := c.executor.Execute(ctx, op, path, body)
@@ -31,20 +31,15 @@ func (c *Client) read(ctx context.Context, op, path string, body []byte, out any
 func invalid(err error) error { return NewError("invalid_input", err.Error()) }
 
 func (c *Client) ServerInfo(ctx context.Context) (ServerInfo, error) {
-	var raw struct {
-		Version  string   `json:"version"`
-		Revision string   `json:"revision"`
-		License  string   `json:"license"`
-		Addons   []string `json:"addons"`
-	}
-	if err := c.read(ctx, "version", "api/system/version", nil, &raw); err != nil {
+	var out ServerInfo
+	if err := c.read(ctx, "version", "api/system/version", nil, &out); err != nil {
 		return ServerInfo{}, err
 	}
-	if strings.TrimSpace(raw.Version) == "" {
+	if strings.TrimSpace(out.Version) == "" {
 		return ServerInfo{}, NewError("unavailable", "upstream omitted the Artifactory version")
 	}
-
-	return ServerInfo{Version: raw.Version, Revision: raw.Revision, License: raw.License, Addons: append([]string{}, raw.Addons...)}, nil
+	out.Addons = append([]string{}, out.Addons...)
+	return out, nil
 }
 
 func (c *Client) storage(in ArtifactInput, empty bool) (string, error) {
@@ -156,9 +151,7 @@ func (c *Client) search(ctx context.Context, in search.Filters, sorted bool) (Se
 			return out, NewError("forbidden", "upstream returned a repository outside configured scope")
 		}
 	}
-	if raw.Results != nil {
-		out.Artifacts = raw.Results
-	}
+	out.Artifacts = raw.Results
 	out.Range = raw.Range
 	out.Notices = raw.Notices
 	out.Page = Page{Limit: limit, Offset: in.Offset, Returned: len(out.Artifacts), HasMore: len(out.Artifacts) == limit, Paging: "upstream"}
@@ -295,11 +288,8 @@ func (c *Client) BuildInfo(ctx context.Context, in BuildInput) (BuildInfo, error
 		return out, err
 	}
 	if in.Started != "" {
-		// Artifactory build timestamps include a numeric zone without a colon.
-		if _, err := time.Parse("2006-01-02T15:04:05.000-0700", in.Started); err != nil {
-			if _, err = time.Parse(time.RFC3339Nano, in.Started); err != nil {
-				return out, NewError("invalid_input", "started must be an ISO8601 timestamp")
-			}
+		if _, err := buildStarted(in.Started); err != nil {
+			return out, NewError("invalid_input", "started must be an ISO8601 timestamp")
 		}
 		q.Set("started", in.Started)
 	}

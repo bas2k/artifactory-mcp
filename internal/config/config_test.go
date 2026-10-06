@@ -2,6 +2,7 @@ package config
 
 import (
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -54,29 +55,20 @@ func TestLogLevelConfiguration(t *testing.T) {
 		want  slog.Level
 	}{{"", slog.LevelInfo}, {"debug", slog.LevelDebug}, {"info", slog.LevelInfo}, {"warn", slog.LevelWarn}, {"error", slog.LevelError}, {"DEBUG", slog.LevelDebug}} {
 		t.Run(test.value, func(t *testing.T) {
-			cfg, err := Load(func(k string) string {
-				switch k {
-				case "ARTIFACTORY_URL":
-					return "https://example.test/artifactory"
-				case "ARTIFACTORY_ACCESS_TOKEN":
-					return "secret"
-				case "MCP_LOG_LEVEL":
-					return test.value
-				}
-				return ""
-			})
+			env := map[string]string{
+				"ARTIFACTORY_URL":          "https://example.test/artifactory",
+				"ARTIFACTORY_ACCESS_TOKEN": "secret",
+				"MCP_LOG_LEVEL":            test.value,
+			}
+			cfg, err := Load(func(k string) string { return env[k] })
 			if err != nil || cfg.LogLevel != test.want {
 				t.Fatalf("level = %v, error = %v", cfg.LogLevel, err)
 			}
 		})
 	}
 	for _, value := range []string{"trace", "warning", "debug+1", "credential-secret"} {
-		_, err := Load(func(k string) string {
-			if k == "MCP_LOG_LEVEL" {
-				return value
-			}
-			return ""
-		})
+		env := map[string]string{"MCP_LOG_LEVEL": value}
+		_, err := Load(func(k string) string { return env[k] })
 		if err == nil || strings.Contains(err.Error(), value) {
 			t.Fatalf("invalid log level accepted or exposed: %v", err)
 		}
@@ -94,10 +86,7 @@ func TestLoad(t *testing.T) {
 	}
 	for key, value := range map[string]string{"ARTIFACTORY_URL": "https://user:secret@example.test/artifactory", "ARTIFACTORY_REQUEST_TIMEOUT": "0s", "ARTIFACTORY_RESPONSE_LIMIT": "-1", "ARTIFACTORY_REPOSITORIES": "good,../evil", "ARTIFACTORY_ACCESS_TOKEN": "secret\n"} {
 		t.Run(key, func(t *testing.T) {
-			copy := map[string]string{}
-			for k, v := range env {
-				copy[k] = v
-			}
+			copy := maps.Clone(env)
 			copy[key] = value
 			if _, err := Load(func(k string) string { return copy[k] }); err == nil {
 				t.Fatal("expected validation error")
@@ -107,30 +96,21 @@ func TestLoad(t *testing.T) {
 }
 func TestURLValidation(t *testing.T) {
 	for _, value := range []string{"http://example.test/artifactory", "https://example.test/artifactory?x=1", "https://example.test/artifactory#", "https://example.test/a/../artifactory", "https://example.test/a/%2e%2e/artifactory", "https:///artifactory"} {
-		_, err := Load(func(k string) string {
-			if k == "ARTIFACTORY_URL" {
-				return value
-			}
-			if k == "ARTIFACTORY_ACCESS_TOKEN" {
-				return "token"
-			}
-			return ""
-		})
+		env := map[string]string{
+			"ARTIFACTORY_URL":          value,
+			"ARTIFACTORY_ACCESS_TOKEN": "token",
+		}
+		_, err := Load(func(k string) string { return env[k] })
 		if err == nil {
 			t.Errorf("accepted invalid URL %q", value)
 		}
 	}
-	c, err := Load(func(k string) string {
-		switch k {
-		case "ARTIFACTORY_URL":
-			return "http://localhost:8081/proxy/artifactory"
-		case "ARTIFACTORY_ACCESS_TOKEN":
-			return "token"
-		case "ARTIFACTORY_ALLOW_HTTP":
-			return "true"
-		}
-		return ""
-	})
+	env := map[string]string{
+		"ARTIFACTORY_URL":          "http://localhost:8081/proxy/artifactory",
+		"ARTIFACTORY_ACCESS_TOKEN": "token",
+		"ARTIFACTORY_ALLOW_HTTP":   "true",
+	}
+	c, err := Load(func(k string) string { return env[k] })
 	if err != nil || !c.AllowHTTP {
 		t.Fatal("explicit development HTTP rejected")
 	}

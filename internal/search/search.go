@@ -3,7 +3,8 @@ package search
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -76,12 +77,7 @@ func build(f Filters, allowlist []string, sorted bool) (string, int, error) {
 		}
 	}
 	// JSON serialization keeps quotes and AQL metacharacters inside literal values.
-	keys := make([]string, 0, len(f.Properties))
-	for key := range f.Properties {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(f.Properties)) {
 		v := f.Properties[k]
 		if k == "" || len(k) > 256 || strings.ContainsAny(k, "\r\n\x00") {
 			return "", 0, fmt.Errorf("invalid property key")

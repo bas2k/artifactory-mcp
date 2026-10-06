@@ -16,7 +16,9 @@ func (f executeFunc) Execute(ctx context.Context, op, path string, b []byte) ([]
 }
 func TestScopeCannotReachExecutor(t *testing.T) {
 	calls := 0
-	c := New(executeFunc(func(context.Context, string, string, []byte) ([]byte, error) { calls++; return []byte(`{}`), nil }), []string{"libs"})
+	allowlist := []string{"libs"}
+	c := New(executeFunc(func(context.Context, string, string, []byte) ([]byte, error) { calls++; return []byte(`{}`), nil }), allowlist)
+	allowlist[0] = "other"
 	_, err := c.ArtifactInfo(context.Background(), ArtifactInput{"other", "a.jar"})
 	if Classify(err).Category != "forbidden" {
 		t.Fatal(err)

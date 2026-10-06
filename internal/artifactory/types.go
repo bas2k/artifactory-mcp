@@ -90,7 +90,7 @@ type Page struct {
 	Returned int    `json:"returned"`
 	HasMore  bool   `json:"has_more"`
 	Paging   string `json:"paging" jsonschema:"upstream or local_output"`
-	Total    *int64 `json:"total,omitempty" jsonschema:"Count from a bounded locally fetched collection; omitted for AQL"`
+	Total    *int64 `json:"total,omitempty" jsonschema:"Count from a bounded locally fetched collection; omitted for upstream artifact paging"`
 }
 type SearchResult struct {
 	Artifacts []Artifact `json:"artifacts"`
@@ -99,9 +99,10 @@ type SearchResult struct {
 	Notices   []string   `json:"notices,omitempty"`
 }
 type Range struct {
-	StartPos int64 `json:"start_pos"`
-	EndPos   int64 `json:"end_pos"`
-	Total    int64 `json:"total"`
+	StartPos     int64  `json:"start_pos"`
+	EndPos       int64  `json:"end_pos"`
+	Total        int64  `json:"total"`
+	Notification string `json:"notification,omitempty"`
 }
 type BuildsInput struct {
 	Project    string `json:"project,omitempty"`
@@ -167,11 +168,14 @@ type Reader interface {
 	ListRepositories(context.Context, RepositoryFilter) (Repositories, error)
 	Search(context.Context, search.Filters) (SearchResult, error)
 	SearchSorted(context.Context, search.Filters) (SearchResult, error)
+	SearchPackages(context.Context, search.PackageFilters) (Packages, error)
+	ListPackageVersions(context.Context, PackageVersionsInput) (PackageVersions, error)
 	ArtifactInfo(context.Context, ArtifactInput) (ArtifactInfo, error)
 	Folder(context.Context, ArtifactInput) (Folder, error)
 	Properties(context.Context, PropertiesInput) (Properties, error)
 	Stats(context.Context, ArtifactInput) (Stats, error)
 	ListBuilds(context.Context, BuildsInput) (Builds, error)
+	ListBuildRuns(context.Context, BuildRunsInput) (BuildRuns, error)
 	BuildInfo(context.Context, BuildInput) (BuildInfo, error)
 }
 

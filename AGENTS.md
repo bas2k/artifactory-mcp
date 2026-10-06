@@ -33,6 +33,8 @@ Set `ARTIFACTORY_URL` and `ARTIFACTORY_ACCESS_TOKEN`, then run `./artifactory-mc
 
 Use standard Go formatting with tabs via `gofmt`; CI rejects unformatted sources. Keep package names lowercase, exported identifiers in PascalCase, and private identifiers in camelCase. Match existing snake_case MCP tool names and input JSON keys. Keep configuration, transport, domain logic, and tool registration in their respective packages.
 
+When adding or renaming MCP tools, update the tool-name allowlists in `internal/config/config.go` and `internal/transport/metrics.go` alongside registration in `internal/mcpserver/server.go`. Extend `internal/transport/metrics_test.go` to verify the tool's counter and duration metrics retain its name; missing metrics allowlist entries silently label valid calls as `tool="unknown"`. Keep the `unknown` fallback for unrecognized client-supplied tool names to bound metric cardinality.
+
 ## Testing Guidelines
 
 Use Go's `testing` package, colocated `*_test.go` files, `TestXxx` functions, and descriptive `t.Run` subtests. Exercise validation, repository scoping, response limits, credential redaction, and protocol behavior when changing those paths. HTTP tests use in-memory connections; MCP tests use SDK transports. No numeric coverage threshold is configured.

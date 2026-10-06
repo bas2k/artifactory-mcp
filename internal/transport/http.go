@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -54,10 +55,6 @@ func NewHTTPHandler(server *mcp.Server, cfg config.HTTPConfig) (http.Handler, er
 		}
 	})
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true})
-	origins := make(map[string]bool, len(cfg.AllowedOrigins))
-	for _, origin := range cfg.AllowedOrigins {
-		origins[origin] = true
-	}
 	expectedToken := sha256.Sum256([]byte(cfg.AuthToken))
 	expectedMetricsToken := sha256.Sum256([]byte(cfg.MetricsAuthToken))
 	slots := make(chan struct{}, maxConcurrentRequests)
@@ -66,7 +63,7 @@ func NewHTTPHandler(server *mcp.Server, cfg config.HTTPConfig) (http.Handler, er
 			http.NotFound(w, r)
 			return
 		}
-		if values, present := r.Header["Origin"]; present && (len(values) != 1 || !origins[values[0]]) {
+		if values, present := r.Header["Origin"]; present && (len(values) != 1 || !slices.Contains(cfg.AllowedOrigins, values[0])) {
 			http.Error(w, "origin not allowed", http.StatusForbidden)
 			return
 		}

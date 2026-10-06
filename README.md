@@ -1,6 +1,6 @@
 # Artifactory MCP
 
-A read-only MCP server written in Go, supporting stdio and Streamable HTTP. It exposes server information, artifact searches, repositories, storage metadata, properties, download statistics, and build information through ten typed tools. It uses the official MCP Go SDK v1.6.0 and jfrog-client-go v1.54.0.
+A read-only MCP server written in Go, supporting stdio and Streamable HTTP. It exposes server information, artifact and package searches, repositories, storage metadata, properties, download statistics, and build information through thirteen typed tools. It uses the official MCP Go SDK v1.8.0 and jfrog-client-go v1.55.0.
 
 ## Build and run
 
@@ -48,7 +48,7 @@ The working directory is chosen by the shell or MCP client launching the process
 
 HTTP settings are validated only when `MCP_TRANSPORT=streamable-http`. Origins must contain only a scheme, hostname, and optional port, without a trailing slash or wildcard. Requests without an Origin header are accepted. The origin allowlist does not enable browser CORS.
 
-Logs use JSON on stderr at the configured minimum severity. Invalid log levels fail startup. SDK messages retain their severity but replace all original diagnostic details with a fixed message, including at `debug`; explicit SDK output is treated as an error diagnostic.
+Logs use JSON on stderr at the configured minimum severity. Invalid log levels fail startup. SDK messages retain their diagnostic text and severity, with the configured Artifactory access token replaced by `[REDACTED]`; explicit SDK output is treated as an error diagnostic. Set `MCP_LOG_LEVEL=debug` to see SDK request and response diagnostics.
 
 URLs containing credentials, queries, fragments, or traversal are rejected. Repository names and paths preserve spaces and Unicode. Supply relative paths with unescaped segments; empty `path` is accepted only by `list_folder` for the repository root. Traversal, empty interior segments, percent escapes, backslashes, URL-shaped inputs, and control characters are rejected.
 
@@ -77,7 +77,7 @@ Disable selected tools in either transport with the flag or environment variable
 MCP_DISABLE_TOOLS=list_builds,get_build_info ./artifactory-mcp
 ```
 
-The list is empty by default, enabling all ten tools. The flag replaces the environment value; `--disable-tools=` explicitly enables all tools. Names are case-sensitive; surrounding whitespace and empty entries are ignored, and repeated names are harmless. Unknown names fail startup. Disabled tools are omitted from `tools/list`, and `tools/call` rejects them without contacting Artifactory. See the tool names below.
+The list is empty by default, enabling all thirteen tools. The flag replaces the environment value; `--disable-tools=` explicitly enables all tools. Names are case-sensitive; surrounding whitespace and empty entries are ignored, and repeated names are harmless. Unknown names fail startup. Disabled tools are omitted from `tools/list`, and `tools/call` rejects them without contacting Artifactory. See the tool names below.
 
 ## Streamable HTTP
 
@@ -139,11 +139,14 @@ All tools carry read-only annotations. No upload, delete, property change, promo
 | `list_repositories` | `{"type":"local","package_type":"maven","project":"my-project"}` |
 | `search_artifacts` | `{"repositories":["libs-release-local"],"name_pattern":"*.jar","path_pattern":"org/example/*","properties":{"build.name":"example"},"created_after":"2026-01-01T00:00:00Z","min_size":1024,"limit":100,"offset":0}` |
 | `search_artifacts_sorted` | `{"repositories":["libs-release-local"],"name_pattern":"*.jar","limit":100,"offset":0}` |
+| `search_packages` | `{"package_type":"npm","repositories":["npm-local"],"name_pattern":"@acme/*","limit":100,"offset":0}` |
+| `list_package_versions` | `{"package_type":"maven","repositories":["libs-release-local"],"group":"org.example","name":"widget","limit":100,"offset":0}` |
 | `get_artifact_info` | `{"repository":"libs-release-local","path":"org/example/example-1.0.jar"}` |
 | `list_folder` | `{"repository":"libs-release-local","path":"org/example"}` |
 | `get_artifact_properties` | `{"repository":"libs-release-local","path":"org/example/example-1.0.jar","keys":["build.name","build.number"]}` |
 | `get_artifact_stats` | `{"repository":"libs-release-local","path":"org/example/example-1.0.jar"}` |
 | `list_builds` | `{"project":"my-project","name_filter":"example","limit":100,"offset":0}` |
+| `list_build_runs` | `{"name":"example","project":"my-project","limit":100,"offset":0}` |
 | `get_build_info` | `{"name":"example","number":"42","project":"my-project","started":"2026-01-01T12:00:00.000+0000","module_limit":100,"module_offset":0,"detail_limit":100,"detail_offset":0}` |
 
 Repository `type` supports local, remote, virtual, and federated. All repository filters are optional. Search also supports `created_before`, `modified_after`, `modified_before`, and `max_size`. Property values use exact equality; name and path patterns use AQL wildcards. Property key selection happens locally after fetching the bounded properties response.
@@ -164,6 +167,24 @@ Successful calls return `structuredContent` and the same JSON as text. HTTP and 
 | `response_too_large` | Upstream body exceeds the byte limit |
 
 Upstream error bodies are suppressed. The configured token is redacted from returned JSON strings and property keys. Build responses contain only typed identity, timestamps, status, VCS, module, artifact, and dependency fields; arbitrary properties and environment variables are omitted. Exact integer sizes/counts are emitted as JSON integers, and storage sizes retain their decimal strings. Clients should decode large JSON integers with a representation that preserves precision.
+
+## Package and build discovery
+
+Package tools support `package_type` values `npm`, `nuget`, `maven`, and `docker`. `search_packages` accepts a case-sensitive `name_pattern` with `*` and `?` wildcards (default `*`), optional exact Maven `group`, repository keys, and output paging. `list_package_versions` takes an exact `name`; Maven requires `group` too. Repositories default to the configured allowlist, or token-visible indexed content when no allowlist is set. Use actual local or remote-cache repository keys; these tools do not resolve uncached remote packages or expand virtual repositories.
+
+Both package tools generate item-domain AQL. npm and NuGet identities come from `npm.name`/`npm.version` and `nuget.id`/`nuget.version` properties. Docker names come from `docker.repoName` on `manifest.json` or `list.manifest.json`, with tags taken from the image/tag storage path; SHA-256 digest manifests are omitted, including multi-architecture child images. Property-based package queries use `.include("repo","path","name","property.*")` for OSS compatibility: OSS rejects selecting individual property keys in output. All properties are fetched within the response byte limit, and only recognized package identity fields are returned. Maven names, groups, and versions come from POM locations in standard Maven layout (`group/path/artifact/version/artifact-version.pom`, including timestamped snapshots); custom layouts are not supported. Returned artifacts with missing or ambiguous metadata/layout are omitted with a notice. The tools do not calculate or rebuild package indexes.
+
+Results contain one entry per repository, group, package name, and version, with deduplicated relative `paths`. Maven paths identify matching POMs and Docker paths identify manifests; they are representative metadata files, not a complete list of package files. `search_packages` returns `packages`, and `list_package_versions` returns `versions`. Both sort lexically by repository, group, name, and version; this is not SemVer ordering, a latest-version selection, or npm dist-tag resolution.
+
+Build discovery follows `list_builds` → `list_build_runs` → `get_build_info`. Run listings preserve numbers as strings and sort by start time, newest first, with number as a lexical tie-breaker. Repeated build numbers remain separate occurrences: pass the returned `number` and `started` with the build name and project to `get_build_info`. Neither listing starts or modifies a build.
+
+Package and build-run pages use `paging: "local_output"`, default to 100 entries, and allow up to 500. Each request fetches bounded upstream metadata, then groups/sorts/pages locally; a smaller `limit` does not reduce the upstream fetch. Package queries omit AQL sort/offset/limit because those modifiers cannot bound property-inclusive output. Narrow repository/name/group filters when a response exceeds the byte limit. Package searches reject upstream hard-limit notifications or ranges indicating a partial fetch; other upstream notices are preserved. `page.total` counts the locally fetched, recognized entries, not all possible packages. Concurrent changes can affect offset pages across calls.
+
+## Embedded usage instructions
+
+The binary embeds a short usage guide and supplies it as MCP server instructions during initialization. Clients can also discover and read the same guide as the `usage_instructions` resource at `artifactory://instructions` (`text/markdown`). Advice for disabled tools is omitted from both copies. The resource remains available even when all tools are disabled.
+
+The guide covers repository discovery, search compatibility and paging, artifact paths, build permissions, and error handling. Reading it does not contact Artifactory or load files at runtime. Clients decide whether to include server instructions or resources in the model's context.
 
 ## Paging and permissions
 

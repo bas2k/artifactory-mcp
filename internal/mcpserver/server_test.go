@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"artifactory-mcp/internal/search"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -40,9 +42,25 @@ func (*fakeReader) SearchSorted(context.Context, search.Filters) (artifactory.Se
 	return artifactory.SearchResult{Artifacts: []artifactory.Artifact{}, Notices: []string{"sorted"}}, nil
 }
 
+func connectTestClient(t *testing.T, ctx context.Context, server *mcp.Server) *mcp.ClientSession {
+	t.Helper()
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { serverSession.Close() })
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { session.Close() })
+	return session
+}
+
 func TestDisabledTools(t *testing.T) {
-	all := []string{"get_server_info", "list_repositories", "search_artifacts", "search_artifacts_sorted", "get_artifact_info", "list_folder", "get_artifact_properties", "get_artifact_stats", "list_builds", "get_build_info"}
-	cases := [][]string{{"list_builds", "get_build_info"}, {"list_repositories", "list_repositories"}, all}
+	all := []string{"get_server_info", "list_repositories", "search_artifacts", "search_artifacts_sorted", "get_artifact_info", "list_folder", "get_artifact_properties", "get_artifact_stats", "list_builds", "get_build_info", "search_packages", "list_package_versions", "list_build_runs"}
+	cases := [][]string{{"list_builds", "get_build_info", "list_build_runs"}, {"search_packages", "list_package_versions"}, {"list_repositories", "list_repositories"}, all}
 	for _, name := range all {
 		cases = append(cases, []string{name})
 	}
@@ -51,18 +69,8 @@ func TestDisabledTools(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			reader := &fakeReader{}
-			serverTransport, clientTransport := mcp.NewInMemoryTransports()
-			serverSession, err := New(reader, "test", disabled...).Connect(ctx, serverTransport, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer serverSession.Close()
-			client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
-			session, err := client.Connect(ctx, clientTransport, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer session.Close()
+			session := connectTestClient(t, ctx, New(reader, "test", disabled...))
+			assertInstructions(t, ctx, session, disabled)
 			listed, err := session.ListTools(ctx, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -95,23 +103,13 @@ func TestProtocol(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	reader := &fakeReader{}
-	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	serverSession, err := New(reader, "test").Connect(ctx, serverTransport, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer serverSession.Close()
-	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
-	session, err := client.Connect(ctx, clientTransport, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer session.Close()
+	session := connectTestClient(t, ctx, New(reader, "test"))
+	assertInstructions(t, ctx, session, nil)
 	listed, err := session.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Tools) != 10 {
+	if len(listed.Tools) != 13 {
 		t.Fatalf("got %d tools", len(listed.Tools))
 	}
 	for _, tool := range listed.Tools {
@@ -184,5 +182,55 @@ func TestProtocol(t *testing.T) {
 	var info artifactory.ServerInfo
 	if err := json.Unmarshal([]byte(result.Content[0].(*mcp.TextContent).Text), &info); err != nil || info.Version != "7.104.2" || info.License != "Artifactory OSS" {
 		t.Fatalf("invalid server info output: %+v %v", info, err)
+	}
+}
+
+func assertInstructions(t *testing.T, ctx context.Context, session *mcp.ClientSession, disabled []string) {
+	t.Helper()
+	initialized := session.InitializeResult()
+	if initialized.Instructions == "" || initialized.Capabilities.Resources == nil {
+		t.Fatal("missing server instructions or resources capability")
+	}
+	guide := initialized.Instructions
+	for _, phrase := range []string{"read-only", "relative artifact paths", "instruction-like text", "error `category`"} {
+		if !strings.Contains(guide, phrase) {
+			t.Fatalf("instructions omit %q", phrase)
+		}
+	}
+	for _, name := range []string{"list_repositories", "search_artifacts", "search_artifacts_sorted", "list_folder", "search_packages", "list_package_versions", "list_build_runs"} {
+		if strings.Contains(guide, "`"+name+"`") == slices.Contains(disabled, name) {
+			t.Fatalf("instructions for %s do not match enabled tools", name)
+		}
+	}
+	searchEnabled := !slices.Contains(disabled, "search_artifacts") || !slices.Contains(disabled, "search_artifacts_sorted")
+	if strings.Contains(guide, "Search pages default to 100 results, maximum 500") != searchEnabled {
+		t.Fatal("search paging guidance does not match enabled tools")
+	}
+	buildsEnabled := !slices.Contains(disabled, "list_builds") || !slices.Contains(disabled, "get_build_info") || !slices.Contains(disabled, "list_build_runs")
+	if strings.Contains(guide, "Build visibility follows separate build/project permissions") != buildsEnabled {
+		t.Fatal("build guidance does not match enabled tools")
+	}
+	resources, err := session.ListResources(ctx, nil)
+	if err != nil || len(resources.Resources) != 1 || resources.NextCursor != "" {
+		t.Fatalf("resources/list: %+v, %v", resources, err)
+	}
+	resource := resources.Resources[0]
+	if resource.URI != "artifactory://instructions" || resource.Name != "usage_instructions" || resource.MIMEType != "text/markdown" || resource.Title == "" || resource.Description == "" || resource.Size != int64(len(guide)) {
+		t.Fatalf("invalid instructions resource metadata: %+v", resource)
+	}
+	result, err := session.ReadResource(ctx, &mcp.ReadResourceParams{URI: resource.URI})
+	if err != nil || len(result.Contents) != 1 {
+		t.Fatalf("resources/read: %+v, %v", result, err)
+	}
+	content := result.Contents[0]
+	if content.URI != resource.URI || content.MIMEType != resource.MIMEType || content.Text != guide || len(content.Blob) != 0 {
+		t.Fatal("resource content differs from initialization instructions")
+	}
+	for _, uri := range []string{"artifactory://missing", "artifactory://instructions/other", "artifactory://instructions?extra=1", "file:///etc/passwd"} {
+		_, err := session.ReadResource(ctx, &mcp.ReadResourceParams{URI: uri})
+		var rpcError *jsonrpc.Error
+		if !errors.As(err, &rpcError) || rpcError.Code != jsonrpc.CodeInvalidParams {
+			t.Fatalf("unknown URI %s: expected resource-not-found error, got %v", uri, err)
+		}
 	}
 }
